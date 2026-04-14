@@ -3,16 +3,15 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>聽音找圖：我會做什麼</title>
+    <title>聽音找圖：Debug 版</title>
     <script src="https://cdn.jsdelivr.net/npm/phaser@3.60.0/dist/phaser-arcade-physics.min.js"></script>
     <style>
         body { margin: 0; padding: 0; background-color: #fdfcf5; display: flex; justify-content: center; align-items: center; height: 100vh; overflow: hidden; }
-        canvas { border-radius: 20px; box-shadow: 0 12px 50px rgba(0,0,0,0.1); }
     </style>
 </head>
 <body>
 <script>
-window.onerror = function() { return false; }; 
+window.onerror = function(msg) { console.error(msg); return false; }; 
 
 const config = {
     type: Phaser.AUTO,
@@ -23,143 +22,93 @@ const config = {
 
 const game = new Phaser.Game(config);
 
-const VOCAB = {
-    play: { hex: 0xaed9e0 }, 
-    eat: { hex: 0xb9fbc0 },
-    drink: { hex: 0xfec89a },
-    take: { hex: 0xd8b4fe },
-    look: { hex: 0xfcb6d0 }
-};
-
 const VOCAB_KEYS = ['play', 'eat', 'drink', 'take', 'look'];
-let student, currentTarget, photoCards = [], gameQueue = [], trialCount = 0, scoreText, menuContainer;
+const COLORS = { play: 0xaed9e0, eat: 0xb9fbc0, drink: 0xfec89a, take: 0xd8b4fe, look: 0xfcb6d0 };
+let student, currentTarget, photoCards = [], gameQueue = [], trialCount = 0, scoreText, debugText;
 
 function preload() {
-    let loadTxt = this.add.text(450, 300, '正在載入 (Loading)...', { fontSize: '24px', fill: '#888' }).setOrigin(0.5);
-
-    // Fail-safe: Log error if audio fails to load
-    this.load.on('loaderror', (file) => {
-        console.error('檔案載入失敗:', file.src);
-    });
-
     this.load.image('student', 'assets/student.png');
     VOCAB_KEYS.forEach(key => {
         this.load.image(key, `assets/${key}.png`);
-        this.load.audio(key, `assets/${key}.mp3`); // Checks for assets/play.mp3, etc.
+        this.load.audio(key, `assets/${key}.mp3`);
     });
-    
     this.load.audio('correct', 'assets/correct.mp3');
     this.load.audio('wrong', 'assets/wrong.mp3');
     this.load.audio('congrats', 'assets/congrats.mp3');
-
-    this.load.on('complete', () => { loadTxt.destroy(); });
 }
 
 function create() {
+    debugText = this.add.text(450, 570, '', { fontSize: '16px', fill: '#ff0000' }).setOrigin(0.5);
     showStartMenu(this);
 }
 
 function showStartMenu(scene) {
-    if(menuContainer) menuContainer.destroy();
-    menuContainer = scene.add.container(450, 300).setDepth(100);
+    let container = scene.add.container(450, 300).setDepth(100);
+    let bg = scene.add.rectangle(0, 0, 900, 600, 0x000000, 0.8);
+    let btn = scene.add.rectangle(0, 50, 300, 90, 0xfec89a).setInteractive({useHandCursor: true});
+    let txt = scene.add.text(0, 50, '開始遊戲', { fontSize: '36px', fill: '#6c757d' }).setOrigin(0.5);
+    let title = scene.add.text(0, -100, '聽音找圖', { fontSize: '50px', fill: '#fff' }).setOrigin(0.5);
+    container.add([bg, title, btn, txt]);
     
-    let bg = scene.add.rectangle(0, 0, 900, 600, 0x000000, 0.85);
-    let titleText = scene.add.text(0, -100, '聽音找圖遊戲', { fontSize: '50px', fill: '#fff', fontWeight: 'bold' }).setOrigin(0.5);
-    
-    let startBtn = scene.add.container(0, 50);
-    let rect = scene.add.rectangle(0, 0, 300, 90, 0xfec89a).setInteractive({useHandCursor: true}).setStrokeStyle(6, 0xffffff);
-    let txt = scene.add.text(0, 0, '開始遊戲', { fontSize: '36px', fill: '#6c757d', fontWeight: 'bold' }).setOrigin(0.5);
-    startBtn.add([rect, txt]);
-    
-    rect.on('pointerdown', () => {
-        // CRITICAL: Unlock Web Audio on user gesture
-        if (scene.sound.context.state === 'suspended') {
-            scene.sound.context.resume();
-        }
+    btn.on('pointerdown', () => {
+        if (scene.sound.context.state === 'suspended') scene.sound.context.resume();
+        container.destroy();
         startSetup(scene);
     });
-    
-    menuContainer.add([bg, titleText, startBtn]);
 }
 
 function startSetup(scene) {
-    menuContainer.destroy();
-    photoCards = [];
-    trialCount = 0;
+    let temp = [];
+    for(let i=0; i<10; i++) temp.push(VOCAB_KEYS[i % VOCAB_KEYS.length]);
+    gameQueue = Phaser.Utils.Array.Shuffle(temp);
 
-    // Shuffle 10 rounds
-    let totalRounds = 10;
-    let tempQueue = [];
-    for(let i=0; i < totalRounds; i++) tempQueue.push(VOCAB_KEYS[i % VOCAB_KEYS.length]);
-    gameQueue = Phaser.Utils.Array.Shuffle(tempQueue);
-
-    scene.add.rectangle(450, 40, 900, 80, 0xfbf8e7); 
-    scoreText = scene.add.text(450, 40, '', { fontSize: '28px', fill: '#6c757d', fontWeight: 'bold' }).setOrigin(0.5);
-
-    // Layout Pictures
     VOCAB_KEYS.forEach((key, i) => {
-        let x = 150 + (i * 150);
-        let y = 220;
-        let card = scene.add.container(x, y);
-        let bg = scene.add.rectangle(0, 0, 130, 130, 0xffffff).setStrokeStyle(6, VOCAB[key].hex);
+        let card = scene.add.container(150 + (i * 150), 220);
+        let bg = scene.add.rectangle(0, 0, 130, 130, 0xffffff).setStrokeStyle(6, COLORS[key]);
         let img = scene.add.image(0, 0, key).setDisplaySize(110, 110);
-        card.add([bg, img]).setSize(130, 130).setData('key', key).setData('hex', VOCAB[key].hex);
+        card.add([bg, img]).setSize(130, 130).setData('key', key).setData('hex', COLORS[key]);
         photoCards.push(card);
     });
 
     student = scene.add.image(450, 480, 'student').setDisplaySize(140, 200).setDepth(20).setInteractive();
-    student.setData('startX', 450).setData('startY', 480);
+    scoreText = scene.add.text(450, 40, '', { fontSize: '28px', fill: '#6c757d' }).setOrigin(0.5);
     
     scene.input.setDraggable(student);
-    scene.input.on('drag', (p, obj, dx, dy) => { 
-        obj.x = dx; 
-        obj.y = dy - 80; 
-    });
-    
+    scene.input.on('drag', (p, obj, dx, dy) => { obj.x = dx; obj.y = dy - 80; });
     scene.input.on('dragend', (p, obj) => {
         let hit = null;
-        photoCards.forEach(c => {
-            if (Phaser.Math.Distance.Between(obj.x, obj.y, c.x, c.y) < 80) hit = c; 
-        });
-
+        photoCards.forEach(c => { if (Phaser.Math.Distance.Between(obj.x, obj.y, c.x, c.y) < 80) hit = c; });
         if (hit && hit.getData('key') === currentTarget) {
             scene.sound.play('correct');
-            hit.getAt(0).setFillStyle(hit.getData('hex'), 1);
-            obj.setTint(hit.getData('hex'));
+            hit.getAt(0).setFillStyle(hit.getData('hex'));
             trialCount++;
             scene.time.delayedCall(1200, () => nextRound(scene));
         } else {
             scene.sound.play('wrong');
-            scene.tweens.add({ targets: obj, x: obj.getData('startX'), y: obj.getData('startY'), duration: 400, ease: 'Back.easeOut' });
+            scene.tweens.add({ targets: obj, x: 450, y: 480, duration: 400 });
         }
     });
-
     nextRound(scene);
 }
 
 function nextRound(scene) {
     if (trialCount >= gameQueue.length) {
         scene.sound.play('congrats');
-        scene.add.rectangle(450, 300, 900, 600, 0x000000, 0.8).setDepth(1000);
-        scene.add.text(450, 300, '好叻呀！玩完喇！', { fontSize: '60px', fill: '#fff' }).setOrigin(0.5).setDepth(1001);
-        scene.time.delayedCall(4000, () => window.location.reload());
+        scene.add.text(450, 300, '完成！', { fontSize: '70px', fill: '#000' }).setOrigin(0.5);
         return;
     }
-    
-    currentTarget = gameQueue[trialCount]; 
-    scoreText.setText('進度: ' + (trialCount + 1) + ' / ' + gameQueue.length);
-    
+    currentTarget = gameQueue[trialCount];
+    scoreText.setText(`進度: ${trialCount + 1} / 10`);
     student.setPosition(450, 480).clearTint();
     photoCards.forEach(c => c.getAt(0).setFillStyle(0xffffff));
 
-    // Play Voice - We use a delay to make sure the student sees the new round start
-    scene.time.delayedCall(500, () => {
-        if (scene.sound.get(currentTarget)) {
-            scene.sound.play(currentTarget);
-        } else {
-            console.warn('找不到音訊檔: ' + currentTarget);
-        }
-    });
+    // AUDIO CHECK
+    if (scene.cache.audio.exists(currentTarget)) {
+        debugText.setText(''); // Clear debug
+        scene.sound.play(currentTarget);
+    } else {
+        debugText.setText(`錯誤：找不到音訊檔 assets/${currentTarget}.mp3`);
+    }
 }
 </script>
 </body>
