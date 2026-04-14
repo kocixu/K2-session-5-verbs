@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>我會做什麼？(學生動詞篇)</title>
+    <script src="https://cdn.jsdelivr.net/npm/phaser@3.60.0/dist/phaser-arcade-physics.min.js"></script>
+    <style>
+        body { margin: 0; padding: 0; background-color: #fdfcf5; display: flex; justify-content: center; align-items: center; height: 100vh; overflow: hidden; }
+        canvas { border-radius: 20px; box-shadow: 0 12px 50px rgba(0,0,0,0.1); }
+    </style>
+</head>
+<body>
+<script>
+window.onerror = function() { return false; }; 
+
+const config = {
+    type: Phaser.AUTO,
+    scale: { mode: Phaser.Scale.FIT, autoCenter: Phaser.Scale.CENTER_BOTH, width: 900, height: 600 },
+    backgroundColor: '#fffdf0',
+    scene: { preload: preload, create: create }
+};
+
+const game = new Phaser.Game(config);
+
+const VOCAB = {
+    play: { text: '玩', hex: 0xaed9e0, key: 'play' }, 
+    eat: { text: '食', hex: 0xb9fbc0, key: 'eat' },
+    drink: { text: '飲', hex: 0xfec89a, key: 'drink' },
+    take: { text: '拎', hex: 0xd8b4fe, key: 'take' },
+    look: { text: '睇', hex: 0xfcb6d0, key: 'look' }
+};
+
+const VOCAB_KEYS = ['play', 'eat', 'drink', 'take', 'look'];
+let student, mainImage, currentTarget, wordCards = [], gameQueue = [], trialCount = 0, scoreText, menuContainer;
+
+function preload() {
+    let loadTxt = this.add.text(450, 300, '正在載入...', { fontSize: '28px', fill: '#888' }).setOrigin(0.5);
+
+    this.load.on('loaderror', (file) => console.warn('找不到檔案:', file.key));
+
+    this.load.image('student', 'assets/student.png');
+    
+    // Load images and audio using the clean names (e.g., assets/play.png and assets/play.mp3)
+    VOCAB_KEYS.forEach(key => {
+        this.load.image(key, `assets/${key}.png`);
+        this.load.audio(key, `assets/${key}.mp3`);
+    });
+    
+    this.load.audio('correct', 'assets/correct.mp3');
+    this.load.audio('wrong', 'assets/wrong.mp3');
+    this.load.audio('congrats', 'assets/congrats.mp3');
+
+    this.load.on('complete', () => loadTxt.destroy());
+}
+
+function create() {
+    this.input.once('pointerdown', () => {
+        if (this.sound.context.state === 'suspended') this.sound.context.resume();
+    });
+    showStartMenu(this);
+}
+
+function showStartMenu(scene) {
+    if(menuContainer) menuContainer.destroy();
+    menuContainer = scene.add.container(450, 300).setDepth(100);
+    let bg = scene.add.rectangle(0, 0, 900, 600, 0x000000, 0.8);
+    let titleText = scene.add.text(0, -100, '我會做什麼？', { fontSize: '50px', fill: '#fff', fontWeight: 'bold' }).setOrigin(0.5);
+    
+    let startBtn = scene.add.container(0, 50);
+    let rect = scene.add.rectangle(0, 0, 300, 90, 0xfec89a).setInteractive({useHandCursor: true}).setStrokeStyle(6, 0xffffff);
+    let txt = scene.add.text(0, 0, '開始遊戲', { fontSize: '36px', fill: '#6c757d', fontWeight: 'bold' }).setOrigin(0.5);
+    startBtn.add([rect, txt]);
+    
+    rect.on('pointerdown', () => {
+        if (scene.sound.context.state !== 'running') scene.sound.context.resume();
+        startSetup(scene);
+    });
+    menuContainer.add([bg, titleText, startBtn]);
+}
+
+function startSetup(scene) {
+    menuContainer.destroy();
+    wordCards = [];
+    trialCount = 0;
+
+    let totalRounds = 10;
+    let tempQueue = [];
+    for(let i=0; i < totalRounds; i++) tempQueue.push(VOCAB_KEYS[i % VOCAB_KEYS.length]);
+    gameQueue = Phaser.Utils.Array.Shuffle(tempQueue);
+
+    scene.add.rectangle(450, 40, 900, 80, 0xfbf8e7); 
+    scoreText = scene.add.text(450, 40, '', { fontSize: '32px', fill: '#6c757d', fontWeight: 'bold' }).setOrigin(0.5);
+
+    scene.add.rectangle(280, 310, 420, 420, 0xffffff).setStrokeStyle(10, 0xededed);
+    mainImage = scene.add.image(280, 310, VOCAB_KEYS[0]).setOrigin(0.5);
+    
+    VOCAB_KEYS.forEach((key, i) => {
+        let x = 680 + (i % 2 * 155);
+        let y = 140 + (Math.floor(i / 2) * 125);
+        let card = scene.add.container(x, y);
+        let rect = scene.add.rectangle(0, 0, 140, 100, VOCAB[key].hex, 0.4).setStrokeStyle(5, VOCAB[key].hex);
+        let txt = scene.add.text(0, 0, VOCAB[key].text, { fontSize: '60px', fill: '#555', fontWeight: 'bold' }).setOrigin(0.5);
+        card.add([rect, txt]).setSize(140, 100).setData('key', key).setData('hex', VOCAB[key].hex);
+        wordCards.push(card);
+    });
+
+    student = scene.add.image(450, 520, 'student').setDisplaySize(130, 187).setDepth(20).setInteractive();
+    student.setData('startX', 450).setData('startY', 520);
+    
+    scene.input.setDraggable(student);
+    scene.input.on('drag', (p, obj, dx, dy) => { 
+        obj.x = dx; 
+        obj.y = dy - 70; 
+    });
+    
+    scene.input.on('dragend', (p, obj) => {
+        let hit = null;
+        wordCards.forEach(c => {
+            if (Phaser.Math.Distance.Between(obj.x, obj.y, c.x, c.y) < 100) hit = c; 
+        });
+
+        if (hit && hit.getData('key') === currentTarget) {
+            scene.sound.play('correct');
+            mainImage.setTint(hit.getData('hex'));
+            obj.setTint(hit.getData('hex'));
+            trialCount++;
+            scene.time.delayedCall(1200, () => nextRound(scene));
+        } else {
+            scene.sound.play('wrong');
+            scene.tweens.add({ targets: obj, x: obj.getData('startX'), y: obj.getData('startY'), duration: 400, ease: 'Back.easeOut' });
+        }
+    });
+
+    nextRound(scene);
+}
+
+function nextRound(scene) {
+    if (trialCount >= gameQueue.length) {
+        scene.sound.play('congrats');
+        scene.add.rectangle(450, 300, 900, 600, 0x000000, 0.8).setDepth(1000);
+        scene.add.text(450, 300, '好叻呀！\n認晒啲字喇！', { fontSize: '70px', fill: '#fff', align: 'center' }).setOrigin(0.5).setDepth(1001);
+        scene.time.delayedCall(5000, () => window.location.reload());
+        return;
+    }
+    
+    currentTarget = gameQueue[trialCount]; 
+    scoreText.setText('進度: ' + (trialCount + 1) + ' / ' + gameQueue.length);
+    student.setPosition(450, 520).clearTint();
+    
+    if (scene.textures.exists(currentTarget)) {
+        mainImage.setTexture(currentTarget).clearTint();
+        let r = mainImage.width / mainImage.height;
+        if (r > 1) { mainImage.displayWidth = 400; mainImage.displayHeight = 400/r; }
+        else { mainImage.displayHeight = 400; mainImage.displayWidth = 400*r; }
+    }
+
+    if (scene.sound.get(currentTarget)) {
+        scene.sound.play(currentTarget);
+    }
+}
+</script>
+</body>
+</html>
