@@ -1,4 +1,3 @@
-
 <!DOCTYPE html>
 <html lang="zh-Hant">
 <head>
@@ -36,32 +35,35 @@ const VOCAB_KEYS = ['play', 'eat', 'drink', 'take', 'look'];
 let student, currentTarget, photoCards = [], gameQueue = [], trialCount = 0, scoreText, menuContainer;
 
 function preload() {
-    let loadTxt = this.add.text(450, 300, '正在載入...', { fontSize: '28px', fill: '#888' }).setOrigin(0.5);
+    let loadTxt = this.add.text(450, 300, '正在載入 (Loading)...', { fontSize: '24px', fill: '#888' }).setOrigin(0.5);
+
+    // Fail-safe: Log error if audio fails to load
+    this.load.on('loaderror', (file) => {
+        console.error('檔案載入失敗:', file.src);
+    });
 
     this.load.image('student', 'assets/student.png');
     VOCAB_KEYS.forEach(key => {
         this.load.image(key, `assets/${key}.png`);
-        this.load.audio(key, `assets/${key}.mp3`);
+        this.load.audio(key, `assets/${key}.mp3`); // Checks for assets/play.mp3, etc.
     });
     
     this.load.audio('correct', 'assets/correct.mp3');
     this.load.audio('wrong', 'assets/wrong.mp3');
     this.load.audio('congrats', 'assets/congrats.mp3');
 
-    this.load.on('complete', () => loadTxt.destroy());
+    this.load.on('complete', () => { loadTxt.destroy(); });
 }
 
 function create() {
-    this.input.once('pointerdown', () => {
-        if (this.sound.context.state === 'suspended') this.sound.context.resume();
-    });
     showStartMenu(this);
 }
 
 function showStartMenu(scene) {
     if(menuContainer) menuContainer.destroy();
     menuContainer = scene.add.container(450, 300).setDepth(100);
-    let bg = scene.add.rectangle(0, 0, 900, 600, 0x000000, 0.8);
+    
+    let bg = scene.add.rectangle(0, 0, 900, 600, 0x000000, 0.85);
     let titleText = scene.add.text(0, -100, '聽音找圖遊戲', { fontSize: '50px', fill: '#fff', fontWeight: 'bold' }).setOrigin(0.5);
     
     let startBtn = scene.add.container(0, 50);
@@ -70,9 +72,13 @@ function showStartMenu(scene) {
     startBtn.add([rect, txt]);
     
     rect.on('pointerdown', () => {
-        if (scene.sound.context.state !== 'running') scene.sound.context.resume();
+        // CRITICAL: Unlock Web Audio on user gesture
+        if (scene.sound.context.state === 'suspended') {
+            scene.sound.context.resume();
+        }
         startSetup(scene);
     });
+    
     menuContainer.add([bg, titleText, startBtn]);
 }
 
@@ -81,35 +87,29 @@ function startSetup(scene) {
     photoCards = [];
     trialCount = 0;
 
+    // Shuffle 10 rounds
     let totalRounds = 10;
     let tempQueue = [];
     for(let i=0; i < totalRounds; i++) tempQueue.push(VOCAB_KEYS[i % VOCAB_KEYS.length]);
     gameQueue = Phaser.Utils.Array.Shuffle(tempQueue);
 
     scene.add.rectangle(450, 40, 900, 80, 0xfbf8e7); 
-    scoreText = scene.add.text(450, 40, '', { fontSize: '32px', fill: '#6c757d', fontWeight: 'bold' }).setOrigin(0.5);
+    scoreText = scene.add.text(450, 40, '', { fontSize: '28px', fill: '#6c757d', fontWeight: 'bold' }).setOrigin(0.5);
 
-    // Create Photo Grid (Laying out all 5 action pictures)
-    // We place them in a nice row across the middle/top
+    // Layout Pictures
     VOCAB_KEYS.forEach((key, i) => {
         let x = 150 + (i * 150);
         let y = 220;
-        
         let card = scene.add.container(x, y);
         let bg = scene.add.rectangle(0, 0, 130, 130, 0xffffff).setStrokeStyle(6, VOCAB[key].hex);
         let img = scene.add.image(0, 0, key).setDisplaySize(110, 110);
-        
         card.add([bg, img]).setSize(130, 130).setData('key', key).setData('hex', VOCAB[key].hex);
         photoCards.push(card);
     });
 
-    // The Student (Drag Object)
     student = scene.add.image(450, 480, 'student').setDisplaySize(140, 200).setDepth(20).setInteractive();
     student.setData('startX', 450).setData('startY', 480);
     
-    // UI Hint - Speaker icon or text to prompt listening
-    let listenHint = scene.add.text(450, 360, '🔈 聽一聽，他在做什麼？', { fontSize: '24px', fill: '#999' }).setOrigin(0.5);
-
     scene.input.setDraggable(student);
     scene.input.on('drag', (p, obj, dx, dy) => { 
         obj.x = dx; 
@@ -124,7 +124,7 @@ function startSetup(scene) {
 
         if (hit && hit.getData('key') === currentTarget) {
             scene.sound.play('correct');
-            hit.getAt(0).setFillStyle(hit.getData('hex'), 1); // Highlight the card background
+            hit.getAt(0).setFillStyle(hit.getData('hex'), 1);
             obj.setTint(hit.getData('hex'));
             trialCount++;
             scene.time.delayedCall(1200, () => nextRound(scene));
@@ -141,22 +141,25 @@ function nextRound(scene) {
     if (trialCount >= gameQueue.length) {
         scene.sound.play('congrats');
         scene.add.rectangle(450, 300, 900, 600, 0x000000, 0.8).setDepth(1000);
-        scene.add.text(450, 300, '好叻呀！全對！', { fontSize: '70px', fill: '#fff' }).setOrigin(0.5).setDepth(1001);
-        scene.time.delayedCall(5000, () => window.location.reload());
+        scene.add.text(450, 300, '完成了！你很用心呢！', { fontSize: '60px', fill: '#fff' }).setOrigin(0.5).setDepth(1001);
+        scene.time.delayedCall(4000, () => window.location.reload());
         return;
     }
     
     currentTarget = gameQueue[trialCount]; 
     scoreText.setText('進度: ' + (trialCount + 1) + ' / ' + gameQueue.length);
     
-    // Reset Student & Cards
     student.setPosition(450, 480).clearTint();
     photoCards.forEach(c => c.getAt(0).setFillStyle(0xffffff));
 
-    // Play Voice Command (The core of the game)
-    if (scene.sound.get(currentTarget)) {
-        scene.sound.play(currentTarget);
-    }
+    // Play Voice - We use a delay to make sure the student sees the new round start
+    scene.time.delayedCall(500, () => {
+        if (scene.sound.get(currentTarget)) {
+            scene.sound.play(currentTarget);
+        } else {
+            console.warn('找不到音訊檔: ' + currentTarget);
+        }
+    });
 }
 </script>
 </body>
