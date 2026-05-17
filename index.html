@@ -2,113 +2,261 @@
 <html lang="zh-Hant">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <title>我想做甚麼？</title>
     <script src="https://cdn.jsdelivr.net/npm/phaser@3.60.0/dist/phaser-arcade-physics.min.js"></script>
     <style>
-        body { margin: 0; padding: 0; background-color: #fdfcf5; display: flex; justify-content: center; align-items: center; height: 100vh; overflow: hidden; }
+        html, body {
+            margin: 0;
+            padding: 0;
+            background-color: #000;
+            width: 100%;
+            height: 100svh; 
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            overflow: hidden;
+        }
+        canvas {
+            box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+            border-radius: 10px;
+            max-width: 100%;
+            max-height: 100%;
+            object-fit: contain;
+        }
     </style>
 </head>
 <body>
+
 <script>
 window.onerror = function(msg) { console.error(msg); return false; }; 
 
 const config = {
     type: Phaser.AUTO,
-    scale: { mode: Phaser.Scale.FIT, autoCenter: Phaser.Scale.CENTER_BOTH, width: 900, height: 600 },
+    scale: {
+        mode: Phaser.Scale.FIT,
+        autoCenter: Phaser.Scale.CENTER_BOTH,
+        width: 810,  
+        height: 540  
+    },
     backgroundColor: '#fffdf0',
+    physics: { default: 'arcade' },
     scene: { preload: preload, create: create }
 };
 
 const game = new Phaser.Game(config);
 
-const VOCAB_KEYS = ['play', 'eat', 'drink', 'take', 'look'];
-const COLORS = { play: 0xaed9e0, eat: 0xb9fbc0, drink: 0xfec89a, take: 0xd8b4fe, look: 0xfcb6d0 };
-let student, currentTarget, photoCards = [], gameQueue = [], trialCount = 0, scoreText, debugText;
+// Mapped assets configuration array matching the new design architecture
+const vocabItems = [
+    { key: 'play', text: '玩', x: 165, y: 165, color: 0xaed9e0 },
+    { key: 'eat', text: '食嘢', x: 405, y: 165, color: 0xb9fbc0 },
+    { key: 'drink', text: '飲水', x: 645, y: 165, color: 0xfec89a },
+    { key: 'take', text: '拎書包', x: 285, y: 410, color: 0xd8b4fe },
+    { key: 'look', text: '睇書', x: 525, y: 410, color: 0xfcb6d0 }
+];
+
+let student, currentTarget, lastTargetKey, trialCount = 0;
+let scoreText, startScreen, gameStarted = false, gameQueue = [];
+let photoCards = new Map(); 
+let audioBtn; 
+
+const CHAR_WIDTH = 90;
+const CHAR_HEIGHT = 130;
+
+const SPAWN_X = 405;
+const SPAWN_Y = 410;
 
 function preload() {
     this.load.image('student', 'assets/student.png');
-    VOCAB_KEYS.forEach(key => {
-        this.load.image(key, `assets/${key}.png`);
-        this.load.audio(key, `assets/${key}.mp3`);
+
+    vocabItems.forEach(item => {
+        this.load.image(item.key, `assets/${item.key}.png`);
+        this.load.audio(item.key, `assets/${item.key}.mp3`);
     });
+
     this.load.audio('correct', 'assets/correct.mp3');
     this.load.audio('wrong', 'assets/wrong.mp3');
     this.load.audio('congrats', 'assets/congrats.mp3');
 }
 
 function create() {
-    debugText = this.add.text(450, 570, '', { fontSize: '16px', fill: '#ff0000' }).setOrigin(0.5);
-    showStartMenu(this);
-}
-
-function showStartMenu(scene) {
-    let container = scene.add.container(450, 300).setDepth(100);
-    let bg = scene.add.rectangle(0, 0, 900, 600, 0x000000, 0.8);
-    let btn = scene.add.rectangle(0, 50, 300, 90, 0xfec89a).setInteractive({useHandCursor: true});
-    let txt = scene.add.text(0, 50, '開始遊戲', { fontSize: '36px', fill: '#6c757d' }).setOrigin(0.5);
-    let title = scene.add.text(0, -100, '聽音找圖', { fontSize: '50px', fill: '#fff' }).setOrigin(0.5);
-    container.add([bg, title, btn, txt]);
-    
-    btn.on('pointerdown', () => {
-        if (scene.sound.context.state === 'suspended') scene.sound.context.resume();
-        container.destroy();
-        startSetup(scene);
-    });
-}
-
-function startSetup(scene) {
-    let temp = [];
-    for(let i=0; i<10; i++) temp.push(VOCAB_KEYS[i % VOCAB_KEYS.length]);
-    gameQueue = Phaser.Utils.Array.Shuffle(temp);
-
-    VOCAB_KEYS.forEach((key, i) => {
-        let card = scene.add.container(150 + (i * 150), 220);
-        let bg = scene.add.rectangle(0, 0, 130, 130, 0xffffff).setStrokeStyle(6, COLORS[key]);
-        let img = scene.add.image(0, 0, key).setDisplaySize(110, 110);
-        card.add([bg, img]).setSize(130, 130).setData('key', key).setData('hex', COLORS[key]);
-        photoCards.push(card);
+    // Generate the 5 functional action-verb cards with distinct identity tags
+    vocabItems.forEach(item => {
+        let container = this.add.container(item.x, item.y);
+        let cardBase = this.add.rectangle(0, 0, 215, 190, 0xffffff).setStrokeStyle(5, item.color);
+        let img = this.add.image(0, -12, item.key).setDisplaySize(201, 140);
+        let txt = this.add.text(0, 72, item.text, { 
+            fontSize: '20px', color: '#555', fontWeight: 'bold', fontFamily: 'Microsoft JhengHei'
+        }).setOrigin(0.5);
+        
+        container.add([cardBase, img, txt]);
+        container.setSize(215, 190).setInteractive();
+        
+        // Track references for background color swap triggers later
+        photoCards.set(item.key, cardBase);
     });
 
-    student = scene.add.image(450, 480, 'student').setDisplaySize(140, 200).setDepth(20).setInteractive();
-    scoreText = scene.add.text(450, 40, '', { fontSize: '28px', fill: '#6c757d' }).setOrigin(0.5);
+    // Initialize Student Character
+    student = this.add.image(SPAWN_X, SPAWN_Y, 'student');
+    student.displayWidth = CHAR_WIDTH;
+    student.displayHeight = CHAR_HEIGHT;
+    student.setInteractive();
+    student.setDepth(10); 
+    this.input.setDraggable(student);
     
-    scene.input.setDraggable(student);
-    scene.input.on('drag', (p, obj, dx, dy) => { obj.x = dx; obj.y = dy - 80; });
-    scene.input.on('dragend', (p, obj) => {
-        let hit = null;
-        photoCards.forEach(c => { if (Phaser.Math.Distance.Between(obj.x, obj.y, c.x, c.y) < 80) hit = c; });
-        if (hit && hit.getData('key') === currentTarget) {
-            scene.sound.play('correct');
-            hit.getAt(0).setFillStyle(hit.getData('hex'));
-            trialCount++;
-            scene.time.delayedCall(1200, () => nextRound(scene));
-        } else {
-            scene.sound.play('wrong');
-            scene.tweens.add({ targets: obj, x: 450, y: 480, duration: 400 });
+    student.setData('startX', SPAWN_X);
+    student.setData('startY', SPAWN_Y);
+    student.setVisible(false);
+
+    // Progress counter text element
+    scoreText = this.add.text(405, 45, '進度: 0 / 10', { 
+        fontSize: '26px', fill: '#6c757d', fontWeight: 'bold', fontFamily: 'Microsoft JhengHei'
+    }).setOrigin(0.5).setVisible(false).setDepth(100);
+
+    // Playback speaker emoji interface placed cleanly beneath '食嘢' (x: 405, y: 295)
+    audioBtn = this.add.container(405, 295).setVisible(false).setDepth(100);
+    let btnBg = this.add.circle(0, 0, 32, 0xffffff, 0).setInteractive();
+    let emojiText = this.add.text(0, 0, '🔊', { fontSize: '44px' }).setOrigin(0.5);
+    
+    audioBtn.add([btnBg, emojiText]);
+    audioBtn.setSize(64, 64);
+
+    // Interaction loop configuration for audio playbacks
+    btnBg.on('pointerdown', () => {
+        if (currentTarget && gameStarted && trialCount < 10) {
+            this.sound.play(currentTarget.key);
+            
+            // Pop bounce movement sequence
+            this.tweens.add({
+                targets: audioBtn,
+                scaleX: 1.2,
+                scaleY: 1.2,
+                duration: 100,
+                yoyo: true,
+                ease: 'Quad.easeInOut'
+            });
         }
     });
-    nextRound(scene);
+
+    showStartScreen(this);
+
+    this.input.on('drag', (pointer, gameObject, dragX, dragY) => {
+        gameObject.x = dragX;
+        gameObject.y = dragY - 30; // Structural drag compensation offset
+    });
+
+    this.input.on('dragend', (pointer, gameObject) => {
+        checkDrop(this, gameObject);
+    });
 }
 
-function nextRound(scene) {
-    if (trialCount >= gameQueue.length) {
-        scene.sound.play('congrats');
-        scene.add.text(450, 300, '完成！', { fontSize: '70px', fill: '#000' }).setOrigin(0.5);
+function showStartScreen(scene) {
+    startScreen = scene.add.container(405, 270).setDepth(200);
+    let overlay = scene.add.rectangle(0, 0, 810, 540, 0x000000, 0.85);
+    let remindText = scene.add.text(0, -90, '請將手機橫放進行遊戲\nPlease turn phone horizontally', { 
+        fontSize: '32px', fill: '#fff', align: 'center', fontFamily: 'Microsoft JhengHei', lineSpacing: 10
+    }).setOrigin(0.5);
+
+    let btnBG = scene.add.rectangle(0, 70, 200, 80, 0xFFA500).setInteractive().setStrokeStyle(4, 0xffffff);
+    let btnText = scene.add.text(0, 70, '開始', { 
+        fontSize: '40px', fill: '#fff', fontWeight: 'bold', fontFamily: 'Microsoft JhengHei'
+    }).setOrigin(0.5);
+
+    startScreen.add([overlay, remindText, btnBG, btnText]);
+
+    btnBG.on('pointerdown', () => {
+        if (scene.sound.context.state === 'suspended') {
+            scene.sound.context.resume();
+        }
+        startScreen.destroy();
+        gameStarted = true;
+        student.setVisible(true);
+        scoreText.setVisible(true);
+        audioBtn.setVisible(true);
+        
+        setupGameQueue();
+        startNewTrial(scene);
+    });
+}
+
+function setupGameQueue() {
+    let temp = [];
+    const keys = vocabItems.map(item => item.key);
+    for (let i = 0; i < 10; i++) {
+        temp.push(keys[i % keys.length]);
+    }
+    gameQueue = Phaser.Utils.Array.Shuffle(temp);
+}
+
+function startNewTrial(scene) {
+    if (trialCount >= 10) {
+        showCongratulation(scene);
         return;
     }
-    currentTarget = gameQueue[trialCount];
-    scoreText.setText(`進度: ${trialCount + 1} / 10`);
-    student.setPosition(450, 480).clearTint();
-    photoCards.forEach(c => c.getAt(0).setFillStyle(0xffffff));
 
-    // AUDIO CHECK
-    if (scene.cache.audio.exists(currentTarget)) {
-        debugText.setText(''); // Clear debug
-        scene.sound.play(currentTarget);
-    } else {
-        debugText.setText(`錯誤：找不到音訊檔 assets/${currentTarget}.mp3`);
+    student.x = student.getData('startX');
+    student.y = student.getData('startY');
+    student.displayWidth = CHAR_WIDTH;
+    student.displayHeight = CHAR_HEIGHT;
+    student.setInteractive();
+
+    // Reset backgrounds across the active layout map elements
+    photoCards.forEach(rect => rect.setFillStyle(0xffffff));
+
+    let currentKey = gameQueue[trialCount];
+    currentTarget = vocabItems.find(item => item.key === currentKey);
+    
+    scoreText.setText(`進度: ${trialCount + 1} / 10`);
+
+    if (scene.cache.audio.exists(currentTarget.key)) {
+        scene.sound.play(currentTarget.key);
     }
+}
+
+function checkDrop(scene, char) {
+    let dist = Phaser.Math.Distance.Between(char.x, char.y, currentTarget.x, currentTarget.y);
+    
+    if (dist < 120) {
+        char.disableInteractive();
+        scene.sound.play('correct');
+        
+        // Highlight background tile on successful match injection
+        let activeBg = photoCards.get(currentTarget.key);
+        if (activeBg) activeBg.setFillStyle(currentTarget.color);
+
+        trialCount++;
+        
+        scene.tweens.add({
+            targets: char,
+            x: currentTarget.x,
+            y: currentTarget.y,
+            displayWidth: CHAR_WIDTH * 1.15, 
+            displayHeight: CHAR_HEIGHT * 1.15,
+            duration: 200,
+            yoyo: true,
+            onComplete: () => scene.time.delayedCall(800, () => startNewTrial(scene))
+        });
+    } else {
+        scene.sound.play('wrong');
+        scene.tweens.add({
+            targets: char,
+            x: char.getData('startX'),
+            y: char.getData('startY'),
+            duration: 500,
+            ease: 'Back.easeOut'
+        });
+    }
+}
+
+function showCongratulation(scene) {
+    scene.sound.play('congrats');
+    audioBtn.setVisible(false); 
+    scene.add.rectangle(405, 270, 810, 540, 0x000000, 0.8).setDepth(150);
+    scene.add.text(405, 270, '練習完成！\n欣賞你的努力！', { 
+        fontSize: '64px', fill: '#FFF', align: 'center', fontFamily: 'Microsoft JhengHei',
+        stroke: '#FFA500', strokeThickness: 8
+    }).setOrigin(0.5).setDepth(151);
+    student.setVisible(false);
 }
 </script>
 </body>
