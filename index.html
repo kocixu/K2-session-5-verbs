@@ -46,16 +46,16 @@ const config = {
 
 const game = new Phaser.Game(config);
 
-// Mapped assets configuration array matching the new design architecture
+// Re-arranged layout grid to position the student safely on the bottom right side
 const vocabItems = [
     { key: 'play', text: '玩', x: 165, y: 165, color: 0xaed9e0 },
     { key: 'eat', text: '食嘢', x: 405, y: 165, color: 0xb9fbc0 },
     { key: 'drink', text: '飲水', x: 645, y: 165, color: 0xfec89a },
-    { key: 'take', text: '拎書包', x: 285, y: 410, color: 0xd8b4fe },
-    { key: 'look', text: '睇書', x: 525, y: 410, color: 0xfcb6d0 }
+    { key: 'take', text: '拎書包', x: 165, y: 410, color: 0xd8b4fe },
+    { key: 'look', text: '睇書', x: 405, y: 410, color: 0xfcb6d0 }
 ];
 
-let student, currentTarget, lastTargetKey, trialCount = 0;
+let student, currentTarget, trialCount = 0;
 let scoreText, startScreen, gameStarted = false, gameQueue = [];
 let photoCards = new Map(); 
 let audioBtn; 
@@ -63,7 +63,8 @@ let audioBtn;
 const CHAR_WIDTH = 90;
 const CHAR_HEIGHT = 130;
 
-const SPAWN_X = 405;
+// Set student starting coordinates to the bottom right corner quadrant
+const SPAWN_X = 645;
 const SPAWN_Y = 410;
 
 function preload() {
@@ -80,7 +81,7 @@ function preload() {
 }
 
 function create() {
-    // Generate the 5 functional action-verb cards with distinct identity tags
+    // Generate functional verb photo cards
     vocabItems.forEach(item => {
         let container = this.add.container(item.x, item.y);
         let cardBase = this.add.rectangle(0, 0, 215, 190, 0xffffff).setStrokeStyle(5, item.color);
@@ -92,11 +93,10 @@ function create() {
         container.add([cardBase, img, txt]);
         container.setSize(215, 190).setInteractive();
         
-        // Track references for background color swap triggers later
         photoCards.set(item.key, cardBase);
     });
 
-    // Initialize Student Character
+    // Initialize Student Character on the bottom right corner
     student = this.add.image(SPAWN_X, SPAWN_Y, 'student');
     student.displayWidth = CHAR_WIDTH;
     student.displayHeight = CHAR_HEIGHT;
@@ -108,12 +108,12 @@ function create() {
     student.setData('startY', SPAWN_Y);
     student.setVisible(false);
 
-    // Progress counter text element
+    // Progress text
     scoreText = this.add.text(405, 45, '進度: 0 / 10', { 
         fontSize: '26px', fill: '#6c757d', fontWeight: 'bold', fontFamily: 'Microsoft JhengHei'
     }).setOrigin(0.5).setVisible(false).setDepth(100);
 
-    // Playback speaker emoji interface placed cleanly beneath '食嘢' (x: 405, y: 295)
+    // Speaker emoji playback button placed directly below the center top card (食嘢)
     audioBtn = this.add.container(405, 295).setVisible(false).setDepth(100);
     let btnBg = this.add.circle(0, 0, 32, 0xffffff, 0).setInteractive();
     let emojiText = this.add.text(0, 0, '🔊', { fontSize: '44px' }).setOrigin(0.5);
@@ -121,12 +121,10 @@ function create() {
     audioBtn.add([btnBg, emojiText]);
     audioBtn.setSize(64, 64);
 
-    // Interaction loop configuration for audio playbacks
     btnBg.on('pointerdown', () => {
         if (currentTarget && gameStarted && trialCount < 10) {
             this.sound.play(currentTarget.key);
             
-            // Pop bounce movement sequence
             this.tweens.add({
                 targets: audioBtn,
                 scaleX: 1.2,
@@ -142,7 +140,7 @@ function create() {
 
     this.input.on('drag', (pointer, gameObject, dragX, dragY) => {
         gameObject.x = dragX;
-        gameObject.y = dragY - 30; // Structural drag compensation offset
+        gameObject.y = dragY - 30; 
     });
 
     this.input.on('dragend', (pointer, gameObject) => {
@@ -200,7 +198,6 @@ function startNewTrial(scene) {
     student.displayHeight = CHAR_HEIGHT;
     student.setInteractive();
 
-    // Reset backgrounds across the active layout map elements
     photoCards.forEach(rect => rect.setFillStyle(0xffffff));
 
     let currentKey = gameQueue[trialCount];
@@ -220,7 +217,6 @@ function checkDrop(scene, char) {
         char.disableInteractive();
         scene.sound.play('correct');
         
-        // Highlight background tile on successful match injection
         let activeBg = photoCards.get(currentTarget.key);
         if (activeBg) activeBg.setFillStyle(currentTarget.color);
 
